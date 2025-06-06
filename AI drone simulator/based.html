@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Drone Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            min-width: 300px;
+        }
+        #telemetry {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            font-size: 12px;
+            min-width: 250px;
+        }
+        button {
+            background: #001a00;
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #00ff41;
+            color: #000;
+        }
+        select, input {
+            background: #001a00;
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 5px;
+            margin: 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .mission-point {
+            margin: 5px 0;
+            padding: 5px;
+            background: rgba(0, 255, 65, 0.1);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <h3>🚁 DRONE CONTROL</h3>
+            <div>
+                <button id="startMission">Start Mission</button>
+                <button id="pauseMission">Pause</button>
+                <button id="resetMission">Reset</button>
+            </div>
+            <div>
+                <label>Flight Mode:</label>
+                <select id="flightMode">
+                    <option value="waypoint">Waypoint Navigation</option>
+                    <option value="patrol">Patrol Route</option>
+                    <option value="search">Search Pattern</option>
+                    <option value="manual">Manual Control</option>
+                </select>
+            </div>
+            <div>
+                <label>Speed: </label>
+                <input type="range" id="speedSlider" min="0.5" max="3" step="0.1" value="1.5">
+                <span id="speedValue">1.5</span>
+            </div>
+            <div>
+                <button id="addWaypoint">Add Waypoint</button>
+                <button id="clearWaypoints">Clear All</button>
+            </div>
+            <div id="waypoints"></div>
+        </div>
+        
+        <div id="telemetry">
+            <h3>📊 TELEMETRY</h3>
+            <div id="position">Position: (0, 0, 0)</div>
+            <div id="velocity">Velocity: 0.0 m/s</div>
+            <div id="altitude">Altitude: 0.0 m</div>
+            <div id="battery">Battery: 100%</div>
+            <div id="status">Status: Ready</div>
+            <div id="mission">Mission: Standby</div>
+            <div id="waypoint">Next Waypoint: None</div>
+        </div>
+    </div>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x001122, 50, 200);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x001122);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 100, 50);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+
+        // Ground
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x228B22,
+            transparent: true,
+            opacity: 0.8
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Grid
+        const gridHelper = new THREE.GridHelper(200, 50, 0x00ff41, 0x004400);
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.3;
+        scene.add(gridHelper);
+
+        // Drone creation
+        function createDrone() {
+            const droneGroup = new THREE.Group();
+            
+            // Main body
+            const bodyGeometry = new THREE.BoxGeometry(2, 0.5, 2);
+            const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            droneGroup.add(body);
+            
+            // Propellers
+            const propellers = [];
+            const propPositions = [
+                [-1.5, 0.3, -1.5], [1.5, 0.3, -1.5],
+                [-1.5, 0.3, 1.5], [1.5, 0.3, 1.5]
+            ];
+            
+            propPositions.forEach((pos, i) => {
+                const armGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2);
+                const armMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
+                const arm = new THREE.Mesh(armGeometry, armMaterial);
+                arm.position.set(pos[0] * 0.7, pos[1] - 0.8, pos[2] * 0.7);
+                arm.rotation.z = Math.PI / 2;
+                droneGroup.add(arm);
+                
+                const propGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.05);
+                const propMaterial = new THREE.MeshPhongMaterial({ 
+                    color: 0x00ff41, 
+                    transparent: true, 
+                    opacity: 0.7 
+                });
+                const prop = new THREE.Mesh(propGeometry, propMaterial);
+                prop.position.set(pos[0], pos[1], pos[2]);
+                propellers.push(prop);
+                droneGroup.add(prop);
+            });
+            
+            // LED lights
+            const ledGeometry = new THREE.SphereGeometry(0.1);
+            const redLED = new THREE.Mesh(ledGeometry, new THREE.MeshPhongMaterial({ 
+                color: 0xff0000, 
+                emissive: 0xff0000, 
+                emissiveIntensity: 0.5 
+            }));
+            redLED.position.set(0, 0.3, -1);
+            droneGroup.add(redLED);
+            
+            const greenLED = new THREE.Mesh(ledGeometry, new THREE.MeshPhongMaterial({ 
+                color: 0x00ff00, 
+                emissive: 0x00ff00, 
+                emissiveIntensity: 0.5 
+            }));
+            greenLED.position.set(0, 0.3, 1);
+            droneGroup.add(greenLED);
+            
+            droneGroup.propellers = propellers;
+            droneGroup.castShadow = true;
+            return droneGroup;
+        }
+
+        const drone = createDrone();
+        drone.position.set(0, 5, 0);
+        scene.add(drone);
+
+        // Waypoint system
+        const waypoints = [];
+        const waypointMarkers = [];
+        let currentWaypointIndex = 0;
+
+        function createWaypointMarker(position) {
+            const geometry = new THREE.SphereGeometry(0.5);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0x00ff41,
+                emissive: 0x004400,
+                transparent: true,
+                opacity: 0.8
+            });
+            const marker = new THREE.Mesh(geometry, material);
+            marker.position.copy(position);
+            
+            // Pulsing animation
+            marker.userData.originalScale = marker.scale.clone();
+            marker.userData.pulsePhase = Math.random() * Math.PI * 2;
+            
+            scene.add(marker);
+            return marker;
+        }
+
+        // Drone physics and control
+        const droneState = {
+            position: new THREE.Vector3(0, 5, 0),
+            velocity: new THREE.Vector3(0, 0, 0),
+            rotation: new THREE.Euler(0, 0, 0),
+            targetPosition: new THREE.Vector3(0, 5, 0),
+            speed: 1.5,
+            isActive: false,
+            mode: 'waypoint',
+            battery: 100,
+            missionStartTime: 0
+        };
+
+        function updateDronePhysics(deltaTime) {
+            if (!droneState.isActive) return;
+            
+            // Calculate direction to target
+            const direction = new THREE.Vector3().subVectors(droneState.targetPosition, droneState.position);
+            const distance = direction.length();
+            
+            if (distance > 0.5) {
+                direction.normalize();
+                
+                // Apply movement
+                const moveVector = direction.multiplyScalar(droneState.speed * deltaTime);
+                droneState.velocity.lerp(moveVector, 0.1);
+                droneState.position.add(droneState.velocity);
+                
+                // Banking animation
+                const bankAngle = droneState.velocity.x * 0.3;
+                droneState.rotation.z = THREE.MathUtils.lerp(droneState.rotation.z, bankAngle, 0.1);
+                
+                // Heading
+                droneState.rotation.y = Math.atan2(direction.x, direction.z);
+            } else {
+                // Arrived at waypoint
+                if (droneState.mode === 'waypoint' && waypoints.length > 0) {
+                    currentWaypointIndex = (currentWaypointIndex + 1) % waypoints.length;
+                    if (currentWaypointIndex < waypoints.length) {
+                        droneState.targetPosition.copy(waypoints[currentWaypointIndex]);
+                    }
+                }
+            }
+            
+            // Update drone position and rotation
+            drone.position.copy(droneState.position);
+            drone.rotation.copy(droneState.rotation);
+            
+            // Animate propellers
+            drone.propellers.forEach((prop, i) => {
+                prop.rotation.y += (droneState.isActive ? 1 : 0.1) * deltaTime * 20;
+            });
+            
+            // Update battery
+            if (droneState.isActive) {
+                droneState.battery = Math.max(0, droneState.battery - deltaTime * 0.5);
+            }
+        }
+
+        // Camera follow system
+        const cameraOffset = new THREE.Vector3(0, 15, 20);
+        const cameraTarget = new THREE.Vector3();
+
+        function updateCamera() {
+            cameraTarget.copy(drone.position);
+            const idealPosition = drone.position.clone().add(cameraOffset);
+            camera.position.lerp(idealPosition, 0.05);
+            camera.lookAt(cameraTarget);
+        }
+
+        // Event handlers
+        document.getElementById('startMission').addEventListener('click', () => {
+            droneState.isActive = true;
+            droneState.missionStartTime = Date.now();
+            if (waypoints.length > 0) {
+                droneState.targetPosition.copy(waypoints[0]);
+                currentWaypointIndex = 0;
+            }
+        });
+
+        document.getElementById('pauseMission').addEventListener('click', () => {
+            droneState.isActive = !droneState.isActive;
+        });
+
+        document.getElementById('resetMission').addEventListener('click', () => {
+            droneState.isActive = false;
+            droneState.position.set(0, 5, 0);
+            droneState.velocity.set(0, 0, 0);
+            droneState.rotation.set(0, 0, 0);
+            droneState.battery = 100;
+            currentWaypointIndex = 0;
+        });
+
+        document.getElementById('speedSlider').addEventListener('input', (e) => {
+            droneState.speed = parseFloat(e.target.value);
+            document.getElementById('speedValue').textContent = e.target.value;
+        });
+
+        document.getElementById('flightMode').addEventListener('change', (e) => {
+            droneState.mode = e.target.value;
+            
+            // Set up different flight patterns
+            switch(e.target.value) {
+                case 'patrol':
+                    setPatrolRoute();
+                    break;
+                case 'search':
+                    setSearchPattern();
+                    break;
+            }
+        });
+
+        document.getElementById('addWaypoint').addEventListener('click', () => {
+            const x = (Math.random() - 0.5) * 40;
+            const z = (Math.random() - 0.5) * 40;
+            const y = 3 + Math.random() * 10;
+            addWaypoint(new THREE.Vector3(x, y, z));
+        });
+
+        document.getElementById('clearWaypoints').addEventListener('click', () => {
+            clearWaypoints();
+        });
+
+        // Click to add waypoints
+        renderer.domElement.addEventListener('click', (event) => {
+            if (event.ctrlKey) {
+                const mouse = new THREE.Vector2();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+                
+                // Create a plane at y = 5 for waypoint placement
+                const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -5);
+                const intersection = new THREE.Vector3();
+                raycaster.ray.intersectPlane(plane, intersection);
+                
+                if (intersection) {
+                    addWaypoint(intersection);
+                }
+            }
+        });
+
+        function addWaypoint(position) {
+            waypoints.push(position.clone());
+            const marker = createWaypointMarker(position);
+            waypointMarkers.push(marker);
+            updateWaypointDisplay();
+        }
+
+        function clearWaypoints() {
+            waypoints.length = 0;
+            waypointMarkers.forEach(marker => scene.remove(marker));
+            waypointMarkers.length = 0;
+            currentWaypointIndex = 0;
+            updateWaypointDisplay();
+        }
+
+        function updateWaypointDisplay() {
+            const container = document.getElementById('waypoints');
+            container.innerHTML = '';
+            waypoints.forEach((wp, i) => {
+                const div = document.createElement('div');
+                div.className = 'mission-point';
+                div.innerHTML = `WP${i + 1}: (${wp.x.toFixed(1)}, ${wp.y.toFixed(1)}, ${wp.z.toFixed(1)})`;
+                container.appendChild(div);
+            });
+        }
+
+        function setPatrolRoute() {
+            clearWaypoints();
+            const points = [
+                new THREE.Vector3(-20, 8, -20),
+                new THREE.Vector3(20, 8, -20),
+                new THREE.Vector3(20, 8, 20),
+                new THREE.Vector3(-20, 8, 20)
+            ];
+            points.forEach(point => addWaypoint(point));
+        }
+
+        function setSearchPattern() {
+            clearWaypoints();
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                const radius = 15;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                addWaypoint(new THREE.Vector3(x, 6 + i * 0.5, z));
+            }
+        }
+
+        // Telemetry updates
+        function updateTelemetry() {
+            document.getElementById('position').textContent = 
+                `Position: (${droneState.position.x.toFixed(1)}, ${droneState.position.y.toFixed(1)}, ${droneState.position.z.toFixed(1)})`;
+            document.getElementById('velocity').textContent = 
+                `Velocity: ${droneState.velocity.length().toFixed(1)} m/s`;
+            document.getElementById('altitude').textContent = 
+                `Altitude: ${droneState.position.y.toFixed(1)} m`;
+            document.getElementById('battery').textContent = 
+                `Battery: ${droneState.battery.toFixed(1)}%`;
+            document.getElementById('status').textContent = 
+                `Status: ${droneState.isActive ? 'Active' : 'Standby'}`;
+            document.getElementById('mission').textContent = 
+                `Mission: ${droneState.mode}`;
+            document.getElementById('waypoint').textContent = 
+                `Next Waypoint: ${waypoints.length > 0 ? `WP${currentWaypointIndex + 1}` : 'None'}`;
+        }
+
+        // Animation loop
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = clock.getDelta();
+            
+            // Update systems
+            updateDronePhysics(deltaTime);
+            updateCamera();
+            updateTelemetry();
+            
+            // Animate waypoint markers
+            waypointMarkers.forEach(marker => {
+                marker.userData.pulsePhase += deltaTime * 3;
+                const scale = 1 + Math.sin(marker.userData.pulsePhase) * 0.2;
+                marker.scale.setScalar(scale);
+            });
+            
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Initialize with some waypoints
+        setPatrolRoute();
+        
+        animate();
+    </script>
+</body>
+</html>
