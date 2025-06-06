@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python Drone Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            min-width: 320px;
+            backdrop-filter: blur(10px);
+        }
+        #telemetry {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            font-size: 12px;
+            min-width: 280px;
+            backdrop-filter: blur(10px);
+        }
+        #pythonConsole {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            font-size: 11px;
+            height: 200px;
+            overflow-y: auto;
+            backdrop-filter: blur(10px);
+        }
+        button {
+            background: #001a00;
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #00ff41;
+            color: #000;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        select, input {
+            background: #001a00;
+            border: 2px solid #00ff41;
+            color: #00ff41;
+            padding: 5px;
+            margin: 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .status-connected { color: #00ff41; }
+        .status-disconnected { color: #ff4141; }
+        .status-waiting { color: #ffff41; }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .log-info { background: rgba(0, 255, 65, 0.1); }
+        .log-warning { background: rgba(255, 255, 65, 0.1); }
+        .log-error { background: rgba(255, 65, 65, 0.1); }
+        .log-command { background: rgba(65, 155, 255, 0.1); }
+        .sensor-data {
+            background: rgba(0, 255, 65, 0.05);
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 3px solid #00ff41;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <h3>🐍 PYTHON INTEGRATION</h3>
+            <div>
+                <span id="connectionStatus" class="status-disconnected">● Disconnected</span>
+                <button id="connectPython">Connect to Python</button>
+            </div>
+            <div>
+                <button id="startPythonControl">Start Python Control</button>
+                <button id="stopPythonControl">Stop Control</button>
+                <button id="emergencyStop">EMERGENCY STOP</button>
+            </div>
+            <div>
+                <label>Control Mode:</label>
+                <select id="controlMode">
+                    <option value="python">Python Script</option>
+                    <option value="manual">Manual Override</option>
+                    <option value="hybrid">Hybrid Control</option>
+                </select>
+            </div>
+            <div>
+                <label>Update Rate:</label>
+                <select id="updateRate">
+                    <option value="60">60 Hz</option>
+                    <option value="30">30 Hz</option>
+                    <option value="10">10 Hz</option>
+                </select>
+            </div>
+            <div>
+                <button id="resetSim">Reset Simulation</button>
+                <button id="addObstacle">Add Obstacle</button>
+                <button id="clearObstacles">Clear Obstacles</button>
+            </div>
+        </div>
+        
+        <div id="telemetry">
+            <h3>📡 TELEMETRY DATA</h3>
+            <div class="sensor-data">
+                <div><strong>Position (GPS):</strong></div>
+                <div id="position">X: 0.0, Y: 0.0, Z: 0.0</div>
+                <div><strong>Velocity:</strong></div>
+                <div id="velocity">Vx: 0.0, Vy: 0.0, Vz: 0.0</div>
+                <div><strong>Attitude:</strong></div>
+                <div id="attitude">Roll: 0°, Pitch: 0°, Yaw: 0°</div>
+            </div>
+            <div class="sensor-data">
+                <div><strong>IMU Data:</strong></div>
+                <div id="acceleration">Acc: (0.0, 0.0, 9.81)</div>
+                <div id="gyroscope">Gyro: (0.0, 0.0, 0.0)</div>
+                <div id="magnetometer">Mag: (0.0, 0.0, 1.0)</div>
+            </div>
+            <div class="sensor-data">
+                <div><strong>System Status:</strong></div>
+                <div id="battery">Battery: 100%</div>
+                <div id="altitude">Altitude: 0.0 m</div>
+                <div id="groundSpeed">Ground Speed: 0.0 m/s</div>
+                <div id="flightTime">Flight Time: 00:00</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x001122, 50, 300);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x001122);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 100, 50);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.left = -100;
+        directionalLight.shadow.camera.right = 100;
+        directionalLight.shadow.camera.top = 100;
+        directionalLight.shadow.camera.bottom = -100;
+        scene.add(directionalLight);
+
+        // Environment
+        const groundGeometry = new THREE.PlaneGeometry(300, 300);
+        const groundMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x228B22,
+            transparent: true,
+            opacity: 0.8
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const gridHelper = new THREE.GridHelper(300, 60, 0x00ff41, 0x004400);
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.2;
+        scene.add(gridHelper);
+
+        // Obstacles array
+        const obstacles = [];
+
+        // Create drone
+        function createDrone() {
+            const droneGroup = new THREE.Group();
+            
+            // Main body
+            const bodyGeometry = new THREE.BoxGeometry(2, 0.5, 2);
+            const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            droneGroup.add(body);
+            
+            // Arms and propellers
+            const propellers = [];
+            const propPositions = [
+                [-1.5, 0.3, -1.5], [1.5, 0.3, -1.5],
+                [-1.5, 0.3, 1.5], [1.5, 0.3, 1.5]
+            ];
+            
+            propPositions.forEach((pos, i) => {
+                // Arms
+                const armGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2);
+                const armMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
+                const arm = new THREE.Mesh(armGeometry, armMaterial);
+                arm.position.set(pos[0] * 0.7, pos[1] - 0.8, pos[2] * 0.7);
+                arm.rotation.z = Math.PI / 2;
+                droneGroup.add(arm);
+                
+                // Propellers
+                const propGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.05);
+                const propMaterial = new THREE.MeshPhongMaterial({ 
+                    color: 0x00ff41, 
+                    transparent: true, 
+                    opacity: 0.7 
+                });
+                const prop = new THREE.Mesh(propGeometry, propMaterial);
+                prop.position.set(pos[0], pos[1], pos[2]);
+                propellers.push(prop);
+                droneGroup.add(prop);
+            });
+            
+            // Status LEDs
+            const frontLED = new THREE.Mesh(
+                new THREE.SphereGeometry(0.1),
+                new THREE.MeshPhongMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 0.5 })
+            );
+            frontLED.position.set(0, 0.3, -1);
+            droneGroup.add(frontLED);
+            
+            const rearLED = new THREE.Mesh(
+                new THREE.SphereGeometry(0.1),
+                new THREE.MeshPhongMaterial({ color: 0x00ff00, emissive: 0x00ff00, emissiveIntensity: 0.5 })
+            );
+            rearLED.position.set(0, 0.3, 1);
+            droneGroup.add(rearLED);
+            
+            droneGroup.propellers = propellers;
+            droneGroup.castShadow = true;
+            return droneGroup;
+        }
+
+        const drone = createDrone();
+        drone.position.set(0, 5, 0);
+        scene.add(drone);
+
+        // Drone state and physics
+        const droneState = {
+            position: new THREE.Vector3(0, 5, 0),
+            velocity: new THREE.Vector3(0, 0, 0),
+            acceleration: new THREE.Vector3(0, 0, -9.81),
+            rotation: new THREE.Euler(0, 0, 0),
+            angularVelocity: new THREE.Vector3(0, 0, 0),
+            
+            // Control inputs (from Python)
+            throttle: 0.5,
+            roll: 0,
+            pitch: 0,
+            yaw: 0,
+            
+            // System state
+            isActive: false,
+            controlMode: 'python',
+            battery: 100,
+            startTime: 0,
+            lastUpdate: 0
+        };
+
+        // Python communication system
+        let pythonSocket = null;
+        let isConnected = false;
+        let updateInterval = null;
+        const updateRate = 60; // Hz
+
+        function connectToPython() {
+            try {
+                // Simulate WebSocket connection for demo
+                // In real implementation, this would connect to your Python script
+                logToConsole('Attempting to connect to Python script...', 'info');
+                
+                setTimeout(() => {
+                    isConnected = true;
+                    updateConnectionStatus();
+                    logToConsole('Connected to Python control script', 'info');
+                    logToConsole('Ready to receive commands via WebSocket on port 8765', 'info');
+                    startTelemetryStream();
+                }, 1000);
+                
+            } catch (error) {
+                logToConsole(`Connection failed: ${error.message}`, 'error');
+                isConnected = false;
+                updateConnectionStatus();
+            }
+        }
+
+        function startTelemetryStream() {
+            if (updateInterval) clearInterval(updateInterval);
+            
+            const rate = parseInt(document.getElementById('updateRate').value);
+            updateInterval = setInterval(() => {
+                if (isConnected) {
+                    sendTelemetryToPython();
+                }
+            }, 1000 / rate);
+        }
+
+        function sendTelemetryToPython() {
+            const telemetryData = {
+                timestamp: Date.now(),
+                position: {
+                    x: droneState.position.x,
+                    y: droneState.position.y,
+                    z: droneState.position.z
+                },
+                velocity: {
+                    x: droneState.velocity.x,
+                    y: droneState.velocity.y,
+                    z: droneState.velocity.z
+                },
+                attitude: {
+                    roll: droneState.rotation.x * 180 / Math.PI,
+                    pitch: droneState.rotation.y * 180 / Math.PI,
+                    yaw: droneState.rotation.z * 180 / Math.PI
+                },
+                imu: {
+                    acceleration: droneState.acceleration,
+                    gyroscope: droneState.angularVelocity,
+                    magnetometer: { x: 0, y: 0, z: 1 }
+                },
+                battery: droneState.battery,
+                altitude: droneState.position.y,
+                groundSpeed: Math.sqrt(droneState.velocity.x**2 + droneState.velocity.z**2),
+                isActive: droneState.isActive
+            };
+            
+            // In real implementation, send via WebSocket
+            // python_socket.send(JSON.stringify(telemetryData));
+            
+            // Simulate receiving commands from Python
+            if (Math.random() < 0.1) { // 10% chance to simulate command
+                simulatePythonCommand();
+            }
+        }
+
+        function simulatePythonCommand() {
+            const commands = [
+                { type: 'move', x: (Math.random() - 0.5) * 2, y: 0, z: (Math.random() - 0.5) * 2 },
+                { type: 'hover', altitude: 5 + Math.random() * 5 },
+                { type: 'rotate', yaw: (Math.random() - 0.5) * 30 }
+            ];
+            
+            const cmd = commands[Math.floor(Math.random() * commands.length)];
+            processPythonCommand(cmd);
+        }
+
+        function processPythonCommand(command) {
+            logToConsole(`Received command: ${JSON.stringify(command)}`, 'command');
+            
+            switch(command.type) {
+                case 'move':
+                    droneState.velocity.x += command.x * 0.1;
+                    droneState.velocity.z += command.z * 0.1;
+                    break;
+                case 'hover':
+                    const targetY = command.altitude;
+                    const currentY = droneState.position.y;
+                    droneState.velocity.y = (targetY - currentY) * 0.1;
+                    break;
+                case 'rotate':
+                    droneState.angularVelocity.y = command.yaw * Math.PI / 180 * 0.1;
+                    break;
+                case 'emergency_stop':
+                    emergencyStop();
+                    break;
+            }
+        }
+
+        function updateDronePhysics(deltaTime) {
+            if (!droneState.isActive) return;
+            
+            // Apply physics
+            droneState.velocity.add(droneState.acceleration.clone().multiplyScalar(deltaTime));
+            droneState.position.add(droneState.velocity.clone().multiplyScalar(deltaTime));
+            
+            // Apply angular velocity
+            droneState.rotation.x += droneState.angularVelocity.x * deltaTime;
+            droneState.rotation.y += droneState.angularVelocity.y * deltaTime;
+            droneState.rotation.z += droneState.angularVelocity.z * deltaTime;
+            
+            // Apply damping
+            droneState.velocity.multiplyScalar(0.98);
+            droneState.angularVelocity.multiplyScalar(0.95);
+            
+            // Ground collision
+            if (droneState.position.y < 0.5) {
+                droneState.position.y = 0.5;
+                droneState.velocity.y = Math.max(0, droneState.velocity.y);
+            }
+            
+            // Update drone visual
+            drone.position.copy(droneState.position);
+            drone.rotation.copy(droneState.rotation);
+            
+            // Animate propellers
+            drone.propellers.forEach(prop => {
+                prop.rotation.y += deltaTime * 20 * (droneState.isActive ? 1 : 0.1);
+            });
+            
+            // Update battery
+            if (droneState.isActive) {
+                droneState.battery = Math.max(0, droneState.battery - deltaTime * 0.2);
+            }
+        }
+
+        // Obstacle management
+        function addObstacle() {
+            const geometry = new THREE.BoxGeometry(
+                2 + Math.random() * 4,
+                2 + Math.random() * 8,
+                2 + Math.random() * 4
+            );
+            const material = new THREE.MeshLambertMaterial({ 
+                color: Math.random() * 0xffffff,
+                transparent: true,
+                opacity: 0.8
+            });
+            const obstacle = new THREE.Mesh(geometry, material);
+            
+            obstacle.position.set(
+                (Math.random() - 0.5) * 80,
+                geometry.parameters.height / 2,
+                (Math.random() - 0.5) * 80
+            );
+            obstacle.castShadow = true;
+            obstacle.receiveShadow = true;
+            
+            scene.add(obstacle);
+            obstacles.push(obstacle);
+            
+            logToConsole(`Added obstacle at (${obstacle.position.x.toFixed(1)}, ${obstacle.position.y.toFixed(1)}, ${obstacle.position.z.toFixed(1)})`, 'info');
+        }
+
+        function clearObstacles() {
+            obstacles.forEach(obstacle => scene.remove(obstacle));
+            obstacles.length = 0;
+            logToConsole('All obstacles cleared', 'info');
+        }
+
+        // UI Functions
+        function updateConnectionStatus() {
+            const statusEl = document.getElementById('connectionStatus');
+            if (isConnected) {
+                statusEl.textContent = '● Connected';
+                statusEl.className = 'status-connected';
+            } else {
+                statusEl.textContent = '● Disconnected';
+                statusEl.className = 'status-disconnected';
+            }
+        }
+
+        function logToConsole(message, type = 'info') {
+            const console = document.getElementById('consoleOutput');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            console.appendChild(entry);
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('consoleOutput').innerHTML = '';
+        }
+
+        function updateTelemetry() {
+            document.getElementById('position').textContent = 
+                `X: ${droneState.position.x.toFixed(2)}, Y: ${droneState.position.y.toFixed(2)}, Z: ${droneState.position.z.toFixed(2)}`;
+            document.getElementById('velocity').textContent = 
+                `Vx: ${droneState.velocity.x.toFixed(2)}, Vy: ${droneState.velocity.y.toFixed(2)}, Vz: ${droneState.velocity.z.toFixed(2)}`;
+            document.getElementById('attitude').textContent = 
+                `Roll: ${(droneState.rotation.x * 180 / Math.PI).toFixed(1)}°, Pitch: ${(droneState.rotation.y * 180 / Math.PI).toFixed(1)}°, Yaw: ${(droneState.rotation.z * 180 / Math.PI).toFixed(1)}°`;
+            document.getElementById('acceleration').textContent = 
+                `Acc: (${droneState.acceleration.x.toFixed(2)}, ${droneState.acceleration.y.toFixed(2)}, ${droneState.acceleration.z.toFixed(2)})`;
+            document.getElementById('gyroscope').textContent = 
+                `Gyro: (${droneState.angularVelocity.x.toFixed(2)}, ${droneState.angularVelocity.y.toFixed(2)}, ${droneState.angularVelocity.z.toFixed(2)})`;
+            document.getElementById('battery').textContent = 
+                `Battery: ${droneState.battery.toFixed(1)}%`;
+            document.getElementById('altitude').textContent = 
+                `Altitude: ${droneState.position.y.toFixed(2)} m`;
+            document.getElementById('groundSpeed').textContent = 
+                `Ground Speed: ${Math.sqrt(droneState.velocity.x**2 + droneState.velocity.z**2).toFixed(2)} m/s`;
+            
+            const flightTime = droneState.isActive ? (Date.now() - droneState.startTime) / 1000 : 0;
+            const minutes = Math.floor(flightTime / 60);
+            const seconds = Math.floor(flightTime % 60);
+            document.getElementById('flightTime').textContent = 
+                `Flight Time: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function emergencyStop() {
+            droneState.isActive = false;
+            droneState.velocity.set(0, 0, 0);
+            droneState.angularVelocity.set(0, 0, 0);
+            logToConsole('EMERGENCY STOP ACTIVATED', 'error');
+        }
+
+        // Camera system
+        const cameraOffset = new THREE.Vector3(0, 20, 25);
+        function updateCamera() {
+            const idealPosition = drone.position.clone().add(cameraOffset);
+            camera.position.lerp(idealPosition, 0.05);
+            camera.lookAt(drone.position);
+        }
+
+        // Event handlers
+        document.getElementById('connectPython').addEventListener('click', connectToPython);
+        document.getElementById('startPythonControl').addEventListener('click', () => {
+            if (isConnected) {
+                droneState.isActive = true;
+                droneState.startTime = Date.now();
+                logToConsole('Python control started', 'info');
+            } else {
+                logToConsole('Cannot start: Python not connected', 'error');
+            }
+        });
+        document.getElementById('stopPythonControl').addEventListener('click', () => {
+            droneState.isActive = false;
+            logToConsole('Python control stopped', 'info');
+        });
+        document.getElementById('emergencyStop').addEventListener('click', emergencyStop);
+        document.getElementById('resetSim').addEventListener('click', () => {
+            droneState.position.set(0, 5, 0);
+            droneState.velocity.set(0, 0, 0);
+            droneState.rotation.set(0, 0, 0);
+            droneState.angularVelocity.set(0, 0, 0);
+            droneState.battery = 100;
+            droneState.isActive = false;
+            logToConsole('Simulation reset', 'info');
+        });
+        document.getElementById('addObstacle').addEventListener('click', addObstacle);
+        document.getElementById('clearObstacles').addEventListener('click', clearObstacles);
+        document.getElementById('updateRate').addEventListener('change', startTelemetryStream);
+
+        // Animation loop
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = clock.getDelta();
+            
+            updateDronePhysics(deltaTime);
+            updateCamera();
+            updateTelemetry();
+            
+            renderer.render(scene, camera);
+        }
+
+        // Initialize
+        logToConsole('Drone Simulator initialized', 'info');
+        logToConsole('Click "Connect to Python" to start integration', 'info');
+        
+        // Add some initial obstacles
+        for (let i = 0; i < 3; i++) {
+            addObstacle();
+        }
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
